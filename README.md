@@ -10,5 +10,3 @@
 
 ## Se não funcionar:
 - Mude "COM3" para sua porta no `controle.py`
-
-**Só isso!** �
