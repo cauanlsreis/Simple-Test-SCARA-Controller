@@ -10,8 +10,8 @@ camera = cv2.VideoCapture(0)
 hands = mp.solutions.hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
 time.sleep(2)
 
-print("MAO DIREITA ABERTA = Braco Principal Direita | MAO ESQUERDA ABERTA = Braco Principal Esquerda")
-print("MAO DIREITA FECHADA = Antebraco Esquerda | MAO ESQUERDA FECHADA = Antebraco Direita | 'q' = Sair")
+print("MAO DIREITA ABERTA = Braço Principal Direita | MAO ESQUERDA ABERTA = Braco Principal Esquerda")
+print("MAO DIREITA FECHADA = Antebraco Direita | MAO ESQUERDA FECHADA = Antebraco Esquerda | 'q' = Sair")
 
 ultimo_tempo = 0
 
