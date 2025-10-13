@@ -8,10 +8,12 @@ import time
 arduino = serial.Serial("COM13", 115200, timeout=1)
 camera = cv2.VideoCapture(0)
 hands = mp.solutions.hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
+mp_drawing = mp.solutions.drawing_utils
+mp_hands = mp.solutions.hands
 time.sleep(2)
 
 print("MAO DIREITA ABERTA = Braco Principal Direita | MAO ESQUERDA ABERTA = Braco Principal Esquerda")
-print("MAO DIREITA FECHADA = Antebraco Esquerda | MAO ESQUERDA FECHADA = Antebraco Direita | 'q' = Sair")
+print("MAO DIREITA FECHADA = Antebraco Direita | MAO ESQUERDA FECHADA = Antebraco Esquerda | 'q' = Sair")
 
 ultimo_tempo = 0
 
@@ -78,21 +80,23 @@ while True:
             ultimo_tempo = time.time()
             print(comando)
 
-        # Marca mão na tela
+        # Desenha landmarks e conexões da mão
+        mp_drawing.draw_landmarks(frame, mao, mp_hands.HAND_CONNECTIONS,
+                                  mp_drawing.DrawingSpec(
+                                      color=(64, 64, 64), thickness=2, circle_radius=4),
+                                  mp_drawing.DrawingSpec(color=(0, 0, 0), thickness=3))
+
+        # Indica posição central do polegar (usado antes para texto)
         x_mao = mao.landmark[0].x * largura
         y_mao = mao.landmark[0].y * frame.shape[0]
-
-        # Cor baseada na mão e estado
+        # Cor baseada na mão e estado (apenas para o texto)
         if mao_esta_fechada:
-            # Magenta=Direita Fechada, Ciano=Esquerda Fechada
             cor = (255, 0, 255) if label_mao == "Right" else (255, 255, 0)
             estado = "Closed"
         else:
-            # Verde=Direita Aberta, Vermelho=Esquerda Aberta
             cor = (0, 255, 0) if label_mao == "Right" else (0, 0, 255)
             estado = "Open"
 
-        cv2.circle(frame, (int(x_mao), int(y_mao)), 20, cor, -1)
         texto_mao = f"{label_mao} Hand ({estado})"
         cv2.putText(frame, texto_mao, (int(x_mao), int(y_mao)-30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, cor, 2)
