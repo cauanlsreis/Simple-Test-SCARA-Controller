@@ -14,7 +14,8 @@ time.sleep(2)
 
 print("MAO DIREITA ABERTA = Braco Principal Direita | MAO ESQUERDA ABERTA = Braco Principal Esquerda")
 print("MAO DIREITA FECHADA = Antebraco Direita | MAO ESQUERDA FECHADA = Antebraco Esquerda")
-print("Comandos: BRACO_*, ANTEBRACO_* | 'q' = Sair")
+print("1 DEDO DIREITA = Sobe Z | 1 DEDO ESQUERDA = Desce Z")
+print("2 DEDOS DIREITA = Gira Direita | 2 DEDOS ESQUERDA = Gira Esquerda | 'q' = Sair")
 
 ultimo_tempo = 0
 
@@ -37,7 +38,29 @@ def mao_fechada(landmarks):
         if landmarks[dedos_tips[i]].y > landmarks[dedos_pips[i]].y:  # Dedo fechado
             dedos_fechados += 1
 
-    return dedos_fechados >= 4  # Mão fechada se 4 ou mais dedos estão fechados
+    # CORREÇÃO: Mão fechada apenas se TODOS os 5 dedos estão fechados
+    # Isso evita conflito com 1 ou 2 dedos levantados
+    return dedos_fechados == 5
+
+
+def contar_dedos_levantados(landmarks):
+    """Conta quantos dedos estão levantados"""
+    dedos_tips = [4, 8, 12, 16,
+                  20]  # Polegar, indicador, médio, anelar, mindinho
+    dedos_pips = [3, 6, 10, 14, 18]
+
+    dedos_levantados = 0
+
+    # Verifica polegar (diferente dos outros dedos)
+    if landmarks[4].x > landmarks[3].x:  # Polegar levantado
+        dedos_levantados += 1
+
+    # Verifica outros dedos
+    for i in range(1, 5):
+        if landmarks[dedos_tips[i]].y < landmarks[dedos_pips[i]].y:  # Dedo levantado
+            dedos_levantados += 1
+
+    return dedos_levantados
 
 
 while True:
@@ -58,9 +81,38 @@ while True:
 
         # Verifica se a mão está fechada
         mao_esta_fechada = mao_fechada(mao.landmark)
+        dedos_levantados = contar_dedos_levantados(mao.landmark)
 
-        # Comando baseado na mão identificada e estado (aberta/fechada)
-        if mao_esta_fechada:
+        # Debug temporário
+        print(
+            f"Debug: {label_mao} - Dedos: {dedos_levantados}, Fechada: {mao_esta_fechada}")
+
+        # Comando baseado na mão identificada e estado - PRIORIDADES CORRIGIDAS
+        # PRIORIDADE 1: Comandos específicos de dedos (evita conflito com mão fechada)
+        if dedos_levantados == 1:  # 1 dedo = controle Z
+            if label_mao == "Right":  # Mão direita com 1 dedo
+                comando = "SOBE_Z"
+            elif label_mao == "Left":  # Mão esquerda com 1 dedo
+                comando = "DESCE_Z"
+            else:
+                comando = ""
+        elif dedos_levantados == 2:  # 2 dedos = rotação garra
+            if label_mao == "Right":  # Mão direita com 2 dedos
+                comando = "GIRA_DIREITA"
+            elif label_mao == "Left":  # Mão esquerda com 2 dedos
+                comando = "GIRA_ESQUERDA"
+            else:
+                comando = ""
+        # PRIORIDADE 2: Mão aberta (3+ dedos) = braço principal
+        elif dedos_levantados >= 3:
+            if label_mao == "Right":  # Mão direita aberta
+                comando = "BRACO_DIREITA"
+            elif label_mao == "Left":  # Mão esquerda aberta
+                comando = "BRACO_ESQUERDA"
+            else:
+                comando = ""
+        # PRIORIDADE 3: Mão fechada (todos os dedos) = antebraço
+        elif mao_esta_fechada:  # Punho fechado = antebraço
             if label_mao == "Right":  # Mão direita fechada
                 comando = "ANTEBRACO_DIREITA"
             elif label_mao == "Left":  # Mão esquerda fechada
@@ -68,12 +120,7 @@ while True:
             else:
                 comando = ""
         else:
-            if label_mao == "Right":  # Mão direita aberta
-                comando = "BRACO_DIREITA"
-            elif label_mao == "Left":  # Mão esquerda aberta
-                comando = "BRACO_ESQUERDA"
-            else:
-                comando = ""
+            comando = ""
 
         # Envia comando (1 por segundo)
         if comando and time.time() - ultimo_tempo > 1:
@@ -91,12 +138,18 @@ while True:
         x_mao = mao.landmark[0].x * largura
         y_mao = mao.landmark[0].y * frame.shape[0]
         # Cor baseada na mão e estado (apenas para o texto)
-        if mao_esta_fechada:
+        if dedos_levantados == 1:
+            cor = (0, 255, 255)  # Ciano para 1 dedo (Z)
+            estado = f"1 Finger ({comando})"
+        elif dedos_levantados == 2:
+            cor = (255, 0, 255)  # Magenta para 2 dedos (Rotação)
+            estado = f"2 Fingers ({comando})"
+        elif mao_esta_fechada:
             cor = (255, 0, 255) if label_mao == "Right" else (255, 255, 0)
             estado = "Closed"
         else:
             cor = (0, 255, 0) if label_mao == "Right" else (0, 0, 255)
-            estado = "Open"
+            estado = f"Open ({dedos_levantados} fingers)"
 
         texto_mao = f"{label_mao} Hand ({estado})"
         cv2.putText(frame, texto_mao, (int(x_mao), int(y_mao)-30),
