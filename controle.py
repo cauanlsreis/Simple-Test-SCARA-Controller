@@ -13,7 +13,8 @@ mp_hands = mp.solutions.hands
 time.sleep(2)
 
 print("MAO DIREITA ABERTA = Braco Principal Direita | MAO ESQUERDA ABERTA = Braco Principal Esquerda")
-print("MAO DIREITA FECHADA = Antebraco Direita | MAO ESQUERDA FECHADA = Antebraco Esquerda | 'q' = Sair")
+print("MAO DIREITA FECHADA = Antebraco Direita | MAO ESQUERDA FECHADA = Antebraco Esquerda")
+print("Comandos: BRACO_*, ANTEBRACO_* | 'q' = Sair")
 
 ultimo_tempo = 0
 
