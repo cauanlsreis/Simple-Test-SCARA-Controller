@@ -14,10 +14,15 @@ time.sleep(2)
 
 print("MAO DIREITA ABERTA = Braco Principal Direita | MAO ESQUERDA ABERTA = Braco Principal Esquerda")
 print("MAO DIREITA FECHADA = Antebraco Direita | MAO ESQUERDA FECHADA = Antebraco Esquerda")
-print("1 DEDO DIREITA = Sobe Z | 1 DEDO ESQUERDA = Desce Z")
-print("2 DEDOS DIREITA = Gira Direita | 2 DEDOS ESQUERDA = Gira Esquerda | 'q' = Sair")
+print("2 DEDOS DIREITA = Gira Direita | 2 DEDOS ESQUERDA = Gira Esquerda")
+print("PINÇA (Polegar + Indicador): PRÓXIMOS = Garra Fecha | DISTANTES = Garra Abre | 'q' = Sair")
 
 ultimo_tempo = 0
+
+# Estado da garra (para evitar comandos repetidos)
+estado_garra_atual = "ABERTA"  # "ABERTA" ou "FECHADA"
+ultimo_comando_garra = ""
+tempo_ultimo_comando_garra = 0
 
 
 def mao_fechada(landmarks):
@@ -38,8 +43,15 @@ def mao_fechada(landmarks):
         if landmarks[dedos_tips[i]].y > landmarks[dedos_pips[i]].y:  # Dedo fechado
             dedos_fechados += 1
 
-    # CORREÇÃO: Mão fechada apenas se TODOS os 5 dedos estão fechados
-    # Isso evita conflito com 1 ou 2 dedos levantados
+    # RIGOROSO: Mão fechada apenas se TODOS os 5 dedos estão fechados
+    # E não é um gesto de pinça (que tem polegar + indicador levantados)
+    polegar_levantado = landmarks[4].x > landmarks[3].x
+    indicador_levantado = landmarks[8].y < landmarks[6].y
+
+    # Se polegar e indicador estão levantados, não é mão fechada (pode ser pinça)
+    if polegar_levantado and indicador_levantado:
+        return False
+
     return dedos_fechados == 5
 
 
@@ -63,13 +75,49 @@ def contar_dedos_levantados(landmarks):
     return dedos_levantados
 
 
+def distancia_euclidiana(ponto1, ponto2):
+    """Calcula a distância euclidiana entre dois pontos"""
+    return ((ponto1.x - ponto2.x) ** 2 + (ponto1.y - ponto2.y) ** 2) ** 0.5
+
+
+def detectar_gesto_pinca(landmarks):
+    """
+    Detecta gesto de pinça: polegar e indicador próximos, outros dedos fechados
+    Retorna: 'FECHA', 'ABRE' ou None
+    """
+    # Distância entre polegar (4) e indicador (8)
+    dist_pinca = distancia_euclidiana(landmarks[4], landmarks[8])
+
+    # Verifica se polegar e indicador estão levantados
+    polegar_levantado = landmarks[4].x > landmarks[3].x
+    indicador_levantado = landmarks[8].y < landmarks[6].y
+
+    # Verifica se os outros dedos (médio, anelar, mindinho) estão fechados
+    outros_dedos_tips = [12, 16, 20]  # médio, anelar, mindinho
+    outros_dedos_pips = [10, 14, 18]
+
+    dedos_fechados = 0
+    for tip, pip in zip(outros_dedos_tips, outros_dedos_pips):
+        if landmarks[tip].y > landmarks[pip].y:  # Dedo fechado
+            dedos_fechados += 1
+
+    # CONDIÇÕES para gesto de pinça:
+    # 1. Polegar E indicador levantados
+    # 2. Pelo menos 2 dos outros 3 dedos fechados
+    if polegar_levantado and indicador_levantado and dedos_fechados >= 2:
+        if dist_pinca < 0.04:  # Dedos bem próximos = comando para fechar
+            return 'FECHA'
+        elif dist_pinca > 0.12:  # Dedos bem distantes = comando para abrir
+            return 'ABRE'
+
+    return None  # Sem comando (zona neutra ou não é pinça)
+
+
 while True:
     ret, frame = camera.read()
     frame = cv2.flip(frame, 1)
     largura = frame.shape[1]
-    centro = largura // 2
-
-    # Detecta mão
+    centro = largura // 2    # Detecta mão
     resultado = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
     if resultado.multi_hand_landmarks and resultado.multi_handedness:
@@ -82,21 +130,34 @@ while True:
         # Verifica se a mão está fechada
         mao_esta_fechada = mao_fechada(mao.landmark)
         dedos_levantados = contar_dedos_levantados(mao.landmark)
+        gesto_pinca = detectar_gesto_pinca(mao.landmark)
 
         # Debug temporário
         print(
-            f"Debug: {label_mao} - Dedos: {dedos_levantados}, Fechada: {mao_esta_fechada}")
+            f"Debug: {label_mao} - Dedos: {dedos_levantados}, Fechada: {mao_esta_fechada}, Pinça: {gesto_pinca}")
+
+        comando = ""
 
         # Comando baseado na mão identificada e estado - PRIORIDADES CORRIGIDAS
-        # PRIORIDADE 1: Comandos específicos de dedos (evita conflito com mão fechada)
-        if dedos_levantados == 1:  # 1 dedo = controle Z
-            if label_mao == "Right":  # Mão direita com 1 dedo
-                comando = "SOBE_Z"
-            elif label_mao == "Left":  # Mão esquerda com 1 dedo
-                comando = "DESCE_Z"
-            else:
-                comando = ""
-        elif dedos_levantados == 2:  # 2 dedos = rotação garra
+        # PRIORIDADE 1: Gesto de pinça (mais específico) com controle de estado
+        if gesto_pinca:
+            # Só envia comando se for diferente do estado atual e com intervalo mínimo
+            if (gesto_pinca == 'FECHA' and estado_garra_atual == "ABERTA" and
+                    time.time() - tempo_ultimo_comando_garra > 2):
+                comando = "GARRA_FECHA"
+                estado_garra_atual = "FECHADA"
+                ultimo_comando_garra = comando
+                tempo_ultimo_comando_garra = time.time()
+
+            elif (gesto_pinca == 'ABRE' and estado_garra_atual == "FECHADA" and
+                  time.time() - tempo_ultimo_comando_garra > 2):
+                comando = "GARRA_ABRE"
+                estado_garra_atual = "ABERTA"
+                ultimo_comando_garra = comando
+                tempo_ultimo_comando_garra = time.time()
+
+        # PRIORIDADE 2: 2 dedos = rotação garra (MAS apenas se NÃO for gesto de pinça)
+        elif dedos_levantados == 2 and not gesto_pinca:  # 2 dedos = rotação garra
             if label_mao == "Right":  # Mão direita com 2 dedos
                 comando = "GIRA_DIREITA"
             elif label_mao == "Left":  # Mão esquerda com 2 dedos
@@ -119,8 +180,6 @@ while True:
                 comando = "ANTEBRACO_ESQUERDA"
             else:
                 comando = ""
-        else:
-            comando = ""
 
         # Envia comando (1 por segundo)
         if comando and time.time() - ultimo_tempo > 1:
@@ -138,9 +197,9 @@ while True:
         x_mao = mao.landmark[0].x * largura
         y_mao = mao.landmark[0].y * frame.shape[0]
         # Cor baseada na mão e estado (apenas para o texto)
-        if dedos_levantados == 1:
-            cor = (0, 255, 255)  # Ciano para 1 dedo (Z)
-            estado = f"1 Finger ({comando})"
+        if gesto_pinca:
+            cor = (0, 255, 255)  # Ciano para gesto de pinça
+            estado = f"Pinça ({gesto_pinca}) - Garra: {estado_garra_atual}"
         elif dedos_levantados == 2:
             cor = (255, 0, 255)  # Magenta para 2 dedos (Rotação)
             estado = f"2 Fingers ({comando})"
@@ -154,6 +213,13 @@ while True:
         texto_mao = f"{label_mao} Hand ({estado})"
         cv2.putText(frame, texto_mao, (int(x_mao), int(y_mao)-30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, cor, 2)
+
+        # Mostra distância da pinça e estado da garra para debug
+        dist_pinca = distancia_euclidiana(mao.landmark[4], mao.landmark[8])
+        cv2.putText(frame, f"DistP: {dist_pinca:.3f}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame, f"Garra: {estado_garra_atual}", (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0) if estado_garra_atual == "ABERTA" else (0, 0, 255), 2)
 
     cv2.imshow('SCARA', frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
