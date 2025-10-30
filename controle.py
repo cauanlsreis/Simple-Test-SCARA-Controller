@@ -14,8 +14,8 @@ time.sleep(2)
 
 print("MAO DIREITA ABERTA = Braco Principal Direita | MAO ESQUERDA ABERTA = Braco Principal Esquerda")
 print("MAO DIREITA FECHADA = Antebraco Direita | MAO ESQUERDA FECHADA = Antebraco Esquerda")
-print("2 DEDOS DIREITA = Gira Direita | 2 DEDOS ESQUERDA = Gira Esquerda")
-print("PINÇA (Polegar + Indicador): PRÓXIMOS = Garra Fecha | DISTANTES = Garra Abre | 'q' = Sair")
+print("INDICADOR + MEDIO = Gira Direita/Esquerda")
+print("GARRA (Polegar + Indicador): PROXIMOS = Fecha | DISTANTES = Abre | 'q' = Sair")
 
 ultimo_tempo = 0
 
@@ -80,6 +80,25 @@ def distancia_euclidiana(ponto1, ponto2):
     return ((ponto1.x - ponto2.x) ** 2 + (ponto1.y - ponto2.y) ** 2) ** 0.5
 
 
+def detectar_gesto_rotacao(landmarks):
+    """
+    Detecta gesto de rotação: indicador e médio levantados, outros fechados
+    Retorna True se o gesto for detectado
+    """
+    # Verifica se indicador (8) e médio (12) estão levantados
+    indicador_levantado = landmarks[8].y < landmarks[6].y
+    medio_levantado = landmarks[12].y < landmarks[10].y
+
+    # Verifica se polegar, anelar e mindinho estão fechados
+    polegar_fechado = landmarks[4].x < landmarks[3].x
+    anelar_fechado = landmarks[16].y > landmarks[14].y
+    mindinho_fechado = landmarks[20].y > landmarks[18].y
+
+    # Gesto de rotação: indicador + médio levantados, outros fechados
+    return (indicador_levantado and medio_levantado and
+            polegar_fechado and anelar_fechado and mindinho_fechado)
+
+
 def detectar_gesto_pinca(landmarks):
     """
     Detecta gesto de pinça: polegar e indicador próximos, outros dedos fechados
@@ -93,18 +112,15 @@ def detectar_gesto_pinca(landmarks):
     indicador_levantado = landmarks[8].y < landmarks[6].y
 
     # Verifica se os outros dedos (médio, anelar, mindinho) estão fechados
-    outros_dedos_tips = [12, 16, 20]  # médio, anelar, mindinho
-    outros_dedos_pips = [10, 14, 18]
-
-    dedos_fechados = 0
-    for tip, pip in zip(outros_dedos_tips, outros_dedos_pips):
-        if landmarks[tip].y > landmarks[pip].y:  # Dedo fechado
-            dedos_fechados += 1
+    medio_fechado = landmarks[12].y > landmarks[10].y
+    anelar_fechado = landmarks[16].y > landmarks[14].y
+    mindinho_fechado = landmarks[20].y > landmarks[18].y
 
     # CONDIÇÕES para gesto de pinça:
     # 1. Polegar E indicador levantados
-    # 2. Pelo menos 2 dos outros 3 dedos fechados
-    if polegar_levantado and indicador_levantado and dedos_fechados >= 2:
+    # 2. Outros 3 dedos fechados
+    if (polegar_levantado and indicador_levantado and
+            medio_fechado and anelar_fechado and mindinho_fechado):
         if dist_pinca < 0.04:  # Dedos bem próximos = comando para fechar
             return 'FECHA'
         elif dist_pinca > 0.12:  # Dedos bem distantes = comando para abrir
@@ -127,14 +143,15 @@ while True:
         # Identifica qual mão (Right/Left do ponto de vista da câmera)
         label_mao = info_mao.classification[0].label
 
-        # Verifica se a mão está fechada
+        # Verifica gestos específicos
         mao_esta_fechada = mao_fechada(mao.landmark)
         dedos_levantados = contar_dedos_levantados(mao.landmark)
         gesto_pinca = detectar_gesto_pinca(mao.landmark)
+        gesto_rotacao = detectar_gesto_rotacao(mao.landmark)
 
         # Debug temporário
         print(
-            f"Debug: {label_mao} - Dedos: {dedos_levantados}, Fechada: {mao_esta_fechada}, Pinça: {gesto_pinca}")
+            f"Debug: {label_mao} - Dedos: {dedos_levantados}, Fechada: {mao_esta_fechada}, Garra: {gesto_pinca}, Rotacao: {gesto_rotacao}")
 
         comando = ""
 
@@ -156,15 +173,14 @@ while True:
                 ultimo_comando_garra = comando
                 tempo_ultimo_comando_garra = time.time()
 
-        # PRIORIDADE 2: 2 dedos = rotação garra (MAS apenas se NÃO for gesto de pinça)
-        elif dedos_levantados == 2 and not gesto_pinca:  # 2 dedos = rotação garra
-            if label_mao == "Right":  # Mão direita com 2 dedos
+        # PRIORIDADE 2: Gesto de rotação (indicador + médio)
+        elif gesto_rotacao:
+            if label_mao == "Right":
                 comando = "GIRA_DIREITA"
-            elif label_mao == "Left":  # Mão esquerda com 2 dedos
+            elif label_mao == "Left":
                 comando = "GIRA_ESQUERDA"
-            else:
-                comando = ""
-        # PRIORIDADE 2: Mão aberta (3+ dedos) = braço principal
+
+        # PRIORIDADE 3: Mão aberta (3+ dedos) = braço principal
         elif dedos_levantados >= 3:
             if label_mao == "Right":  # Mão direita aberta
                 comando = "BRACO_DIREITA"
@@ -199,24 +215,27 @@ while True:
         # Cor baseada na mão e estado (apenas para o texto)
         if gesto_pinca:
             cor = (0, 255, 255)  # Ciano para gesto de pinça
-            estado = f"Pinça ({gesto_pinca}) - Garra: {estado_garra_atual}"
-        elif dedos_levantados == 2:
-            cor = (255, 0, 255)  # Magenta para 2 dedos (Rotação)
-            estado = f"2 Fingers ({comando})"
+            estado = f"Garra ({gesto_pinca}) - Estado: {estado_garra_atual}"
+        elif gesto_rotacao:
+            cor = (255, 0, 255)  # Magenta para rotação
+            estado = f"Rotacao ({comando})"
+        elif dedos_levantados >= 3:
+            cor = (0, 255, 0) if label_mao == "Right" else (0, 0, 255)
+            estado = f"Open ({dedos_levantados} fingers)"
         elif mao_esta_fechada:
             cor = (255, 0, 255) if label_mao == "Right" else (255, 255, 0)
             estado = "Closed"
         else:
-            cor = (0, 255, 0) if label_mao == "Right" else (0, 0, 255)
-            estado = f"Open ({dedos_levantados} fingers)"
+            cor = (128, 128, 128)  # Cinza para neutro
+            estado = f"Neutro ({dedos_levantados} fingers)"
 
         texto_mao = f"{label_mao} Hand ({estado})"
         cv2.putText(frame, texto_mao, (int(x_mao), int(y_mao)-30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, cor, 2)
 
-        # Mostra distância da pinça e estado da garra para debug
+        # Mostra distancia da garra e estado da garra para debug
         dist_pinca = distancia_euclidiana(mao.landmark[4], mao.landmark[8])
-        cv2.putText(frame, f"DistP: {dist_pinca:.3f}", (10, 30),
+        cv2.putText(frame, f"Dist Garra: {dist_pinca:.3f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         cv2.putText(frame, f"Garra: {estado_garra_atual}", (10, 60),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0) if estado_garra_atual == "ABERTA" else (0, 0, 255), 2)
